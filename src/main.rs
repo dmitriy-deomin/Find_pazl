@@ -1,6 +1,7 @@
 mod data;
 
 extern crate num_cpus;
+extern crate secp256k1;
 
 use std::{collections::HashSet, fs::{OpenOptions, File}, time::{Instant, Duration}, io::{BufRead, BufReader, Write}, path::Path, io};
 use std::{
@@ -14,8 +15,7 @@ use sv::util::{hash160, sha256d};
 
 use base58::ToBase58;
 use rustils::parse::boolean::string_to_bool;
-use secp256k1::{All, PublicKey, Secp256k1};
-use secp256k1::SecretKey;
+use secp256k1::{PublicKey, Secp256k1, SecretKey, All};
 
 use tokio::task;
 
@@ -59,16 +59,16 @@ async fn main() {
     // Инфо блок
     // ---------------------------------------------------------------------
     println!("===============================");
-    println!("FIND PAZL 66-160(17-40) v2.0.4");
+    println!("FIND PAZL 66-160(17-40) v2.0.6");
     println!("===============================");
 
     println!("conf load:\n\
-    -CPU CORE:{num_cores}/{count_cpu}\n\
-    -HEX_END:{pazl}\n\
-    -CUSTOM_DIGIT:\n{:?}\n\
-    -ENUMERATION_START:{enum_start}\n\
-    -ENUMERATION_END:{enum_end}\n\
-    -ENUMERATION STEP 1 ALL:{}", custom_digit, string_to_bool(enum_all.clone().to_string()));
+    {num_cores}/{count_cpu} :CPU CORE\n\
+    {pazl} :HEX_END\n\
+    CUSTOM_DIGIT\n{:?}\n\
+    {enum_start} :ENUMERATION_START\n\
+    {enum_end} :ENUMERATION_END\n\
+    {} :ENUMERATION STEP 1 ALL", custom_digit, string_to_bool(enum_all.clone().to_string()));
     // --------------------------------------------------------------------
 
     let file_content = match lines_from_file("puzzle.txt") {
@@ -100,186 +100,201 @@ async fn main() {
     }
     // ------------------------------------------------------------
 
-    //добавляем варианты последовательного перебора если указаны
-    let mut list_enum_start = vec![];
-    let mut list_enum_end = vec![];
-
-    //Заполняем списки для старта и конца
-    let list_custom: Vec<&str> = custom_digit.split(",").collect();
-    for i in 0..enum_start {
-        if i == 0 {
-            list_enum_start = get_enumerate_list(0, list_enum_start, list_custom[i as usize].to_string());
-        } else {
-            list_enum_start = get_enumerate_list(0, list_enum_start, list_custom[i as usize].to_string());
-        }
-    }
-    for i in 0..enum_end {
-        list_enum_end = get_enumerate_list(0, list_enum_end, list_custom[(pazl as usize - enum_end as usize) + i as usize].to_string());
-    }
-
-    let ss = list_enum_start.len();
-    let se = list_enum_end.len();
-    println!("ENUMERAT START:{ss}/1 RAND");
-    println!("ENUMERAT END:{se}/1 RAND\n");
-
     //получать сообщения от потоков
     let (tx, rx) = mpsc::channel();
 
-    let list_enum = Arc::new(list_enum_start);
-    let list_enum_e = Arc::new(list_enum_end);
     let database = Arc::new(database);
     let data_custom = Arc::new(custom_digit);
 
     for _i in 0..num_cores {
         let clone_db = database.clone();
         let clone_dc = data_custom.clone();
-        let clone_lu = list_enum.clone();
-        let clone_lu_end = list_enum_e.clone();
         let tx = tx.clone();
         task::spawn_blocking(move || {
             process(&clone_db, bench, pazl,
-                    &clone_dc, enum_start, tx, &clone_lu, enum_end, &clone_lu_end, enum_all);
+                    &clone_dc, enum_start, tx, enum_end, enum_all);
         });
     }
 
-    let alll = if enum_all == 1 { (pazl - enum_start) * 16 } else { 1 };
     //отображает инфу в однy строку(обновляемую)
     let mut stdout = stdout();
     for received in rx {
         let list: Vec<&str> = received.split(",").collect();
         let mut speed = list[0].to_string().parse::<u64>().unwrap();
         speed = speed * num_cores as u64;
-        let rand_min = ((se + ss + 1) as f64 * alll as f64) / speed as f64;
-        print!("{}\rSPEED:{}/s RAND:{} {}", BACKSPACE, speed, speed_to_time(rand_min), list[1].to_string());
+        print!("{}\rSPEED:{}/s {}", BACKSPACE, speed, list[1].to_string());
         stdout.flush().unwrap();
     }
 }
 
-fn speed_to_time(s: f64) -> String {
-    let r = if s < 60.0 {
-        format!("{:.4}/s", s)
-    } else if s < 3600.0 {
-        format!("{:.4}/m", s / 60.0)
-    } else {
-        format!("{:.4}/h", (s / 60.0) / 60.0)
-    };
-    r
-}
-
 fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custom: &Arc<String>, enum_start: usize, tx: Sender<String>,
-           list_enum: &Arc<Vec<String>>, enum_end: usize, list_enum_end: &Arc<Vec<String>>, enum_all: u8) {
+           enum_end: usize, enum_all: u8) {
     let mut start = Instant::now();
     let mut speed: u32 = 0;
-
-    let mut rng = rand::thread_rng();
     let s = Secp256k1::new();
-
     let sk_def = SecretKey::from_str("0000000000000000000000000000000000000000000000000000000000001460").unwrap();
-
     let enumall = string_to_bool(enum_all.to_string());
-
 
     //Известные
     let data_custom: Vec<&str> = custom.split(",").collect();
+    //для скорости посмотрим есть ли они вообще
+    let mut data_custom_run = false;
+    for i in 0..range {
+        if data_custom[i] != "*" {
+            data_custom_run = true;
+        }
+    }
+
+    //Заполняем сначала нужным количеством нулей
+    let zero = start_zero(range);
+    let end_hex = get_hex(enum_end);
+    let start_hex = get_hex(enum_start);
+    let mut rng = rand::thread_rng();
 
     loop {
-        //создаём случайные остальные числа если нет прямо указаных
-        let mut hex_rand = "".to_string();
-        for i in 0..range - (enum_start + enum_end) {
-            if data_custom[i + enum_start] == "*" {
-                hex_rand.push_str(&HEX[rng.gen_range(0..16)].to_string());
-            } else {
-                hex_rand.push_str(&data_custom[i + enum_start].to_string());
-            }
-        }
-
-        //дописываем их к заготовке в начале
-        let mut list_hex = vec![];
-        if list_enum.len() > 0 {
-            for i in list_enum.iter() {
-                let hex = format!("{}{}", i, hex_rand.clone());
-                list_hex.push(hex);
-            }
-        }
-
-        //дописываем их к заготовке в конце
-        if list_enum_end.len() > 0 {
-            if list_hex.len() > 0 {
-                let mut list_hex_cash = vec![];
-                for y in list_hex.iter() {
-                    for i in list_enum_end.iter() {
-                        let hex = format!("{}{}", y, i);
-                        list_hex_cash.push(hex);
-                    }
-                }
-                list_hex = list_hex_cash.clone();
-            } else {
-                for i in list_enum_end.iter() {
-                    let hex = format!("{}{}", hex_rand.clone(), i);
-                    list_hex.push(hex);
+        //получаем рандомную строку нужной длиннны и устанавливаем пользовательские
+        let randhex = if data_custom_run {
+            let mut randr_str_and_user = "".to_string();
+            for i in 0..range - (enum_start + enum_end) {
+                if data_custom[i] != "*" {
+                    randr_str_and_user.push_str(data_custom[i]);
+                } else {
+                    randr_str_and_user.push_str(HEX[rng.gen_range(0..=15)])
                 }
             }
-        }
+            randr_str_and_user
+        } else {
+            let mut randr_str_and_user = "".to_string();
+            for _i in 0..range - (enum_start + enum_end) {
+                randr_str_and_user.push_str(HEX[rng.gen_range(0..=15)])
+            }
+            randr_str_and_user
+        };
 
-        //если нечего нет добавим как есть
-        if list_enum.len() == 0 && list_enum_end.len() == 0 {
-            list_hex.push(hex_rand);
-        }
+        for end_h in 0..end_hex + 1 {
+            for start_h in 0..start_hex + 1 {
+                //получаем готовый хекс пока без нулей
+                let st = if start_hex == 0 { "".to_string() } else { format!("{:0enum_start$X}", start_h) };
+                let en = if end_hex == 0 { "".to_string() } else { format!("{:0enum_end$X}", end_h) };
+                let enum_hex_and_rand = format!("{st}{randhex}{en}");
 
-        for end in list_hex.iter() {
+                //если включен режим по очереди перебирая каждую рандомную
+                if enumall {
+                    for i in enum_start..range - enum_end {
+                        for j in 0..=15 {
+                            let mut st = enum_hex_and_rand.clone();
+                            let mut rnd_str = start_zero(range);
+                            st.replace_range(i..i + 1, HEX[j]);
+                            rnd_str.push_str(&st);
 
-            //Заполняем сначала нужным количеством нулей
-            let mut rnd_str = start_zero(range);
-
-            if enumall{
-                //по очереди перебирая каждую
-                for i in enum_start..range-enum_end {
-                    for j in 0..=15 {
-                        let mut st = end.clone();
-                        rnd_str = start_zero(range);
-
-                        st.replace_range(i..i + 1, HEX[j]);
-
-                        rnd_str.push_str(&st);
-
-                        let address = create_and_find(&rnd_str, file_content, &s, sk_def);
-
-                        if bench {
-                            println!("[{st}][{}][{address}]",hex_to_wif_compressed(hex::decode(&rnd_str).unwrap()));
-                        } else {
-                            speed = speed + 1;
-                            if start.elapsed() >= Duration::from_secs(1) {
-                                tx.send(format!("{speed},[{st}]", ).to_string()).unwrap();
-                                start = Instant::now();
-                                speed = 0;
+                            let address = create_and_find(&rnd_str, file_content, &s, sk_def);
+                            if bench {
+                                println!("[{st}][{}][{address}]", hex_to_wif_compressed(hex::decode(&rnd_str).unwrap()));
+                            } else {
+                                speed = speed + 1;
+                                if start.elapsed() >= Duration::from_secs(1) {
+                                    tx.send(format!("{speed},{st}", ).to_string()).unwrap();
+                                    start = Instant::now();
+                                    speed = 0;
+                                }
                             }
                         }
                     }
-                }
-            } else {
-                //Добавляем остальные
-                rnd_str.push_str(&end);
-
-                let address = create_and_find(&rnd_str, file_content, &s, sk_def);
-
-                if bench {
-                    println!("[{end}][{}][{address}]",hex_to_wif_compressed(hex::decode(&rnd_str).unwrap()));
+                    //иначе напрямую
                 } else {
-                    speed = speed + 1;
-                    if start.elapsed() >= Duration::from_secs(1) {
-                        tx.send(format!("{speed},[{end}]", ).to_string()).unwrap();
-                        start = Instant::now();
-                        speed = 0;
+                    let hex_string = format!("{zero}{enum_hex_and_rand}");
+                    let address = create_and_find(&hex_string, file_content, &s, sk_def);
+                    if bench {
+                        println!("[{randhex}][{}][{address}]", hex_to_wif_compressed(hex::decode(&hex_string).unwrap()));
+                    } else {
+                        speed = speed + 1;
+                        if start.elapsed() >= Duration::from_secs(1) {
+                            tx.send(format!("{speed},{enum_hex_and_rand}").to_string()).unwrap();
+                            start = Instant::now();
+                            speed = 0;
+                        }
                     }
                 }
             }
         }
     }
+}
+
+fn get_hex(range: usize) -> u128 {
+    let hex = match range {
+        1 => 0xF,
+        2 => 0xFF,
+        3 => 0xFFF,
+        4 => 0xFFFF,
+        5 => 0xFFFFF,
+        6 => 0xFFFFFF,
+        7 => 0xFFFFFFF,
+        8 => 0xFFFFFFFF,
+        9 => 0xFFFFFFFFF,
+        10 => 0xFFFFFFFFFF,
+        11 => 0xFFFFFFFFFFF,
+        12 => 0xFFFFFFFFFFFF,
+        13 => 0xFFFFFFFFFFFFF,
+        14 => 0xFFFFFFFFFFFFFF,
+        15 => 0xFFFFFFFFFFFFFFF,
+        16 => 0xFFFFFFFFFFFFFFFF,
+        17 => 0xFFFFFFFFFFFFFFFFF,
+        18 => 0xFFFFFFFFFFFFFFFFFF,
+        19 => 0xFFFFFFFFFFFFFFFFFFF,
+        20 => 0xFFFFFFFFFFFFFFFFFFFF,
+        21 => 0xFFFFFFFFFFFFFFFFFFFFF,
+        22 => 0xFFFFFFFFFFFFFFFFFFFFFF,
+        23 => 0xFFFFFFFFFFFFFFFFFFFFFFF,
+        24 => 0xFFFFFFFFFFFFFFFFFFFFFFFF,
+        25 => 0xFFFFFFFFFFFFFFFFFFFFFFFFF,
+        26 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        27 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        28 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        29 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        30 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        31 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        32 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+        33 => 0xFFFFFFFFFFFFFFFFFFFF,
+        34 => 0xFFFFFFFFFFFFFFFFFFFF,
+        35 => 0xFFFFFFFFFFFFFFFFFFFF,
+        36 => 0xFFFFFFFFFFFFFFFFFFFF,
+        37 => 0xFFFFFFFFFFFFFFFFFFFF,
+        38 => 0xFFFFFFFFFFFFFFFFFFFF,
+        39 => 0xFFFFFFFFFFFFFFFFFFFF,
+        40 => 0xFFFFFFFFFFFFFFFFFFFF,
+        41 => 0xFFFFFFFFFFFFFFFFFFFF,
+        42 => 0xFFFFFFFFFFFFFFFFFFFF,
+        43 => 0xFFFFFFFFFFFFFFFFFFFF,
+        44 => 0xFFFFFFFFFFFFFFFFFFFF,
+        45 => 0xFFFFFFFFFFFFFFFFFFFF,
+        46 => 0xFFFFFFFFFFFFFFFFFFFF,
+        47 => 0xFFFFFFFFFFFFFFFFFFFF,
+        48 => 0xFFFFFFFFFFFFFFFFFFFF,
+        49 => 0xFFFFFFFFFFFFFFFFFFFF,
+        50 => 0xFFFFFFFFFFFFFFFFFFFF,
+        51 => 0xFFFFFFFFFFFFFFFFFFFF,
+        52 => 0xFFFFFFFFFFFFFFFFFFFF,
+        53 => 0xFFFFFFFFFFFFFFFFFFFF,
+        54 => 0xFFFFFFFFFFFFFFFFFFFF,
+        55 => 0xFFFFFFFFFFFFFFFFFFFF,
+        56 => 0xFFFFFFFFFFFFFFFFFFFF,
+        57 => 0xFFFFFFFFFFFFFFFFFFFF,
+        58 => 0xFFFFFFFFFFFFFFFFFFFF,
+        59 => 0xFFFFFFFFFFFFFFFFFFFF,
+        60 => 0xFFFFFFFFFFFFFFFFFFFF,
+        61 => 0xFFFFFFFFFFFFFFFFFFFF,
+        62 => 0xFFFFFFFFFFFFFFFFFFFF,
+        63 => 0xFFFFFFFFFFFFFFFFFFFF,
+        64 => 0xFFFFFFFFFFFFFFFFFFFF,
+        _ => { 0x0 }
+    };
+    hex
 }
 
 fn create_and_find(hex: &String, file_content: &Arc<HashSet<String>>, s: &Secp256k1<All>, sk_def: SecretKey) -> String {
     let sk = SecretKey::from_str(&hex).unwrap_or(sk_def);
     let public_key_c = PublicKey::from_secret_key(&s, &sk);
+
     let address = get_legacy(&public_key_c.serialize());
 
     if file_content.contains(&address) {
@@ -288,8 +303,6 @@ fn create_and_find(hex: &String, file_content: &Arc<HashSet<String>>, s: &Secp25
     }
     address
 }
-
-
 
 //legasy-----------------------------------------------------------------------
 pub fn get_legacy(public_key: &[u8; 33]) -> String {
@@ -311,40 +324,6 @@ fn hex_to_wif_compressed(raw_hex: Vec<u8>) -> String {
     let checksum = sha256d(&v[0..=33]).0;
     v[34..=37].copy_from_slice(&checksum[0..=3]);
     v.to_base58()
-}
-
-fn get_enumerate_list(start: usize, mut list_enum: Vec<String>, custom_digit: String) -> Vec<String> {
-
-    //если передаваемый список пуст заполним его
-    if list_enum.len() == 0 {
-        for (i, a) in HEX.iter().enumerate() {
-            if custom_digit != "*".to_string() {
-                list_enum.push(custom_digit.to_string());
-            } else {
-                let s = if start >= i {
-                    HEX[start]
-                } else {
-                    a
-                };
-                list_enum.push(s.to_string());
-            }
-        }
-        list_enum
-    } else {
-        let mut ret = vec![];
-        for a in list_enum.iter() {
-            for b in HEX.iter() {
-                if custom_digit != "*".to_string() {
-                    let end = format!("{a}{}", custom_digit.to_string());
-                    ret.push(end);
-                } else {
-                    let end = format!("{a}{b}");
-                    ret.push(end);
-                }
-            }
-        }
-        ret
-    }
 }
 
 fn start_zero(p: usize) -> String {
