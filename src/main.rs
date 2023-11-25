@@ -150,6 +150,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
     let end_hex = get_hex(enum_end);
     let start_hex = get_hex(enum_start);
     let mut rng = rand::thread_rng();
+    let mut rnd_str = "".to_string();
 
     loop {
         //получаем рандомную строку нужной длиннны и устанавливаем пользовательские
@@ -183,7 +184,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                     for i in enum_start..range - enum_end {
                         for j in 0..=15 {
                             let mut st = enum_hex_and_rand.clone();
-                            let mut rnd_str = start_zero(range);
+                            rnd_str = start_zero(range);
                             st.replace_range(i..i + 1, HEX[j]);
                             rnd_str.push_str(&st);
 
@@ -205,7 +206,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                     let hex_string = format!("{zero}{enum_hex_and_rand}");
                     let address = create_and_find(&hex_string, file_content, &s, sk_def);
                     if bench {
-                        println!("[{randhex}][{}][{address}]", hex_to_wif_compressed(hex::decode(&hex_string).unwrap()));
+                        println!("[{enum_hex_and_rand}][{}][{address}]", hex_to_wif_compressed(hex::decode(&hex_string).unwrap()));
                     } else {
                         speed = speed + 1;
                         if start.elapsed() >= Duration::from_secs(1) {
