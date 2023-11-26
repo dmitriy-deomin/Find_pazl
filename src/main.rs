@@ -42,15 +42,20 @@ async fn main() {
     let mut custom_digit = first_word(&conf[2].to_string()).to_string().parse::<String>().unwrap();
     let enum_start: usize = first_word(&conf[3].to_string()).to_string().parse::<usize>().unwrap();
     let enum_end: usize = first_word(&conf[4].to_string()).to_string().parse::<usize>().unwrap();
-    let enum_all: u8 = first_word(&conf[5].to_string()).to_string().parse::<u8>().unwrap();
+    let mut enum_all: u8 = first_word(&conf[5].to_string()).to_string().parse::<u8>().unwrap();
     //---------------------------------------------------------------------
+
+    //если поставят полный перебор отключим последовательный
+    if enum_start + enum_end > pazl {
+        enum_all = 0;
+    }
 
     //если указана длинна пазла больше звёздочек , дорисуем звёздочек
     let cash = custom_digit.clone();
     let cd: Vec<&str> = cash.split(",").collect();
     if cd.len() <= pazl {
         for i in 0..pazl {
-            if cd.get(i as usize).is_none() {
+            if cd.get(i).is_none() {
                 custom_digit.push_str(&*",*".to_string());
             }
         }
@@ -59,7 +64,7 @@ async fn main() {
     // Инфо блок
     // ---------------------------------------------------------------------
     println!("===============================");
-    println!("FIND PAZL 66-160(17-40) v2.0.6");
+    println!("FIND PAZL 66-160(17-40) v2.0.7");
     println!("===============================");
 
     println!("conf load:\n\
@@ -116,21 +121,60 @@ async fn main() {
         });
     }
 
+    //посчитаем количество всех переборов для одного рандома
+    let tot_start: u128 = 16_u128.pow(enum_start as u32);
+    let tot_and: u128 = 16_u128.pow(enum_end as u32);
+
+    //последовательный перебор
+    let posled_perebor: u128 = if string_to_bool(enum_all.clone().to_string()) {
+        (16 * (pazl - (enum_start + enum_end))) as u128
+    } else {
+        0
+    };
+
     //отображает инфу в однy строку(обновляемую)
+    let mut total_address = 0;
     let mut stdout = stdout();
     for received in rx {
         let list: Vec<&str> = received.split(",").collect();
         let mut speed = list[0].to_string().parse::<u64>().unwrap();
+        let mut total_rand = list[2].to_string().parse::<u64>().unwrap();
+
+        let next_rand = if (tot_start + tot_and + posled_perebor) < speed as u128 {
+            format!("{:.4}/sek", (tot_start + tot_and + posled_perebor) as f64 / speed as f64)
+        } else {
+            speed_to_time((tot_start + tot_and + posled_perebor) / speed as u128)
+        };
+
+        total_rand = total_rand * num_cores as u64;
         speed = speed * num_cores as u64;
-        print!("{}\rSPEED:{}/s {}", BACKSPACE, speed, list[1].to_string());
+        total_address = total_address + speed;
+
+        print!("{}\rSPEED:{}/s|RAND:{next_rand}|ADDRES:{total_address}/RAND:{}|{}", BACKSPACE, speed, total_rand, list[1].to_string());
         stdout.flush().unwrap();
     }
 }
+
+fn speed_to_time(s: u128) -> String {
+    let r = match s {
+        0..=60 => format!("{:.2}/sek", s as f64 / 1.0),
+        61..=3600 => format!("{:.2}/Min", s as f64 / 60.0),
+        3601..=86400 => format!("{:.2}/Hour", s as f64 / 3600.0),
+        86401..=604800 => format!("{:.2}/Day", s as f64 / 86400.0),
+        604801..=2678400 => format!("{:.2}/Week", s as f64 / 604800.0),
+        2678401..=32140800 => format!("{:.2}/Month", s as f64 / 2678400.0),
+        32140801..=10000000000000000000 => format!("{:.2}/Year", s as f64 / 32140800.0),
+        _ => "".to_string()
+    };
+    r
+}
+
 
 fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custom: &Arc<String>, enum_start: usize, tx: Sender<String>,
            enum_end: usize, enum_all: u8) {
     let mut start = Instant::now();
     let mut speed: u32 = 0;
+    let mut hex_rand: u32 = 0;
     let s = Secp256k1::new();
     let sk_def = SecretKey::from_str("0000000000000000000000000000000000000000000000000000000000001460").unwrap();
     let enumall = string_to_bool(enum_all.to_string());
@@ -150,7 +194,10 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
     let end_hex = get_hex(enum_end);
     let start_hex = get_hex(enum_start);
     let mut rng = rand::thread_rng();
-    let mut rnd_str = "".to_string();
+
+    //для 66 пазла начало будет с 2000000
+    let start_hex_start =if range==17{ get_hex_start17(enum_start) }else { 0 };
+
 
     loop {
         //получаем рандомную строку нужной длиннны и устанавливаем пользовательские
@@ -172,8 +219,11 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
             randr_str_and_user
         };
 
+        //для посчета количества
+        hex_rand = hex_rand + 1;
+
         for end_h in 0..end_hex + 1 {
-            for start_h in 0..start_hex + 1 {
+            for start_h in start_hex_start..start_hex + 1 {
                 //получаем готовый хекс пока без нулей
                 let st = if start_hex == 0 { "".to_string() } else { format!("{:0enum_start$X}", start_h) };
                 let en = if end_hex == 0 { "".to_string() } else { format!("{:0enum_end$X}", end_h) };
@@ -184,7 +234,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                     for i in enum_start..range - enum_end {
                         for j in 0..=15 {
                             let mut st = enum_hex_and_rand.clone();
-                            rnd_str = start_zero(range);
+                            let mut rnd_str = start_zero(range);
                             st.replace_range(i..i + 1, HEX[j]);
                             rnd_str.push_str(&st);
 
@@ -194,7 +244,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                             } else {
                                 speed = speed + 1;
                                 if start.elapsed() >= Duration::from_secs(1) {
-                                    tx.send(format!("{speed},{st}", ).to_string()).unwrap();
+                                    tx.send(format!("{speed},{st},{hex_rand}", ).to_string()).unwrap();
                                     start = Instant::now();
                                     speed = 0;
                                 }
@@ -210,7 +260,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                     } else {
                         speed = speed + 1;
                         if start.elapsed() >= Duration::from_secs(1) {
-                            tx.send(format!("{speed},{enum_hex_and_rand}").to_string()).unwrap();
+                            tx.send(format!("{speed},{enum_hex_and_rand},{hex_rand}").to_string()).unwrap();
                             start = Instant::now();
                             speed = 0;
                         }
@@ -255,43 +305,34 @@ fn get_hex(range: usize) -> u128 {
         30 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
         31 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
         32 => 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
-        33 => 0xFFFFFFFFFFFFFFFFFFFF,
-        34 => 0xFFFFFFFFFFFFFFFFFFFF,
-        35 => 0xFFFFFFFFFFFFFFFFFFFF,
-        36 => 0xFFFFFFFFFFFFFFFFFFFF,
-        37 => 0xFFFFFFFFFFFFFFFFFFFF,
-        38 => 0xFFFFFFFFFFFFFFFFFFFF,
-        39 => 0xFFFFFFFFFFFFFFFFFFFF,
-        40 => 0xFFFFFFFFFFFFFFFFFFFF,
-        41 => 0xFFFFFFFFFFFFFFFFFFFF,
-        42 => 0xFFFFFFFFFFFFFFFFFFFF,
-        43 => 0xFFFFFFFFFFFFFFFFFFFF,
-        44 => 0xFFFFFFFFFFFFFFFFFFFF,
-        45 => 0xFFFFFFFFFFFFFFFFFFFF,
-        46 => 0xFFFFFFFFFFFFFFFFFFFF,
-        47 => 0xFFFFFFFFFFFFFFFFFFFF,
-        48 => 0xFFFFFFFFFFFFFFFFFFFF,
-        49 => 0xFFFFFFFFFFFFFFFFFFFF,
-        50 => 0xFFFFFFFFFFFFFFFFFFFF,
-        51 => 0xFFFFFFFFFFFFFFFFFFFF,
-        52 => 0xFFFFFFFFFFFFFFFFFFFF,
-        53 => 0xFFFFFFFFFFFFFFFFFFFF,
-        54 => 0xFFFFFFFFFFFFFFFFFFFF,
-        55 => 0xFFFFFFFFFFFFFFFFFFFF,
-        56 => 0xFFFFFFFFFFFFFFFFFFFF,
-        57 => 0xFFFFFFFFFFFFFFFFFFFF,
-        58 => 0xFFFFFFFFFFFFFFFFFFFF,
-        59 => 0xFFFFFFFFFFFFFFFFFFFF,
-        60 => 0xFFFFFFFFFFFFFFFFFFFF,
-        61 => 0xFFFFFFFFFFFFFFFFFFFF,
-        62 => 0xFFFFFFFFFFFFFFFFFFFF,
-        63 => 0xFFFFFFFFFFFFFFFFFFFF,
-        64 => 0xFFFFFFFFFFFFFFFFFFFF,
         _ => { 0x0 }
     };
     hex
 }
 
+fn get_hex_start17(range: usize) -> u128 {
+    let hex = match range {
+        1 => 0x2,
+        2 => 0x20,
+        3 => 0x200,
+        4 => 0x2000,
+        5 => 0x20000,
+        6 => 0x200000,
+        7 => 0x2000000,
+        8 => 0x20000000,
+        9 => 0x200000000,
+        10 => 0x2000000000,
+        11 => 0x20000000000,
+        12 => 0x200000000000,
+        13 => 0x2000000000000,
+        14 => 0x20000000000000,
+        15 => 0x200000000000000,
+        16 => 0x2000000000000000,
+        17 => 0x20000000000000000,
+        _ => { 0x0 }
+    };
+    hex
+}
 fn create_and_find(hex: &String, file_content: &Arc<HashSet<String>>, s: &Secp256k1<All>, sk_def: SecretKey) -> String {
     let sk = SecretKey::from_str(&hex).unwrap_or(sk_def);
     let public_key_c = PublicKey::from_secret_key(&s, &sk);
@@ -369,6 +410,30 @@ fn start_zero(p: usize) -> String {
         38 => "00000000000000000000000000".to_string(),
         39 => "0000000000000000000000000".to_string(),
         40 => "000000000000000000000000".to_string(),
+        41 => "00000000000000000000000".to_string(),
+        42 => "0000000000000000000000".to_string(),
+        43 => "000000000000000000000".to_string(),
+        44 => "00000000000000000000".to_string(),
+        45 => "0000000000000000000".to_string(),
+        46 => "000000000000000000".to_string(),
+        47 => "00000000000000000".to_string(),
+        48 => "0000000000000000".to_string(),
+        49 => "000000000000000".to_string(),
+        50 => "00000000000000".to_string(),
+        51 => "0000000000000".to_string(),
+        52 => "000000000000".to_string(),
+        53 => "00000000000".to_string(),
+        54 => "0000000000".to_string(),
+        55 => "000000000".to_string(),
+        56 => "00000000".to_string(),
+        57 => "0000000".to_string(),
+        58 => "000000".to_string(),
+        59 => "00000".to_string(),
+        60 => "0000".to_string(),
+        61 => "000".to_string(),
+        62 => "00".to_string(),
+        63 => "0".to_string(),
+        64 => "".to_string(),
         _ => { "00000000000000000000000".to_string() }
     };
     r
