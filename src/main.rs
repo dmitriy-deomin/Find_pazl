@@ -66,7 +66,7 @@ async fn main() {
     if enum_start + enum_end >= pazl {
         enum_all = 0;
         //если выключен рандомный шаг
-        if rnd_step==false{
+        if rnd_step == false {
             num_cores = 1;
         }
     }
@@ -122,8 +122,8 @@ async fn main() {
 
     //переводим в число и обрезаем по длинне пересчета
     let dlinna_stert_range = if enum_start == 0 { start_enum.len() } else { enum_start };
-    let start_enum = if start_enum!="0"{u128::from_str_radix(&*start_enum[0..dlinna_stert_range].to_string(), 16).unwrap()}else { 0 };
-    let end_enum = if end_enum !="0"{u128::from_str_radix(&*end_enum[0..dlinna_stert_range].to_string(), 16).unwrap()}else { 0 };
+    let start_enum = if start_enum != "0" { u128::from_str_radix(&*start_enum[0..dlinna_stert_range].to_string(), 16).unwrap() } else { 0 };
+    let end_enum = if end_enum != "0" { u128::from_str_radix(&*end_enum[0..dlinna_stert_range].to_string(), 16).unwrap() } else { 0 };
     let step = u128::from_str_radix(&*step, 16).unwrap();
 
     //получать сообщения от потоков
@@ -138,7 +138,7 @@ async fn main() {
         let tx = tx.clone();
         task::spawn_blocking(move || {
             process(&clone_db, bench, pazl,
-                    &clone_dc, enum_start, tx, enum_end, enum_all, start_enum, end_enum, step,rnd_step);
+                    &clone_dc, enum_start, tx, enum_end, enum_all, start_enum, end_enum, step, rnd_step);
         });
     }
 
@@ -148,7 +148,7 @@ async fn main() {
         let list: Vec<&str> = received.split(",").collect();
         let mut speed = list[0].to_string().parse::<u64>().unwrap();
         speed = speed * num_cores as u64;
-        print!("{}\rSPEED:{}/s|STEP:{}|{}", BACKSPACE, speed, list[2].to_string(),list[1].to_string());
+        print!("{}\rSPEED:{}/s|STEP:{}|{}", BACKSPACE, speed, list[2].to_string(), list[1].to_string());
         stdout.flush().unwrap();
     }
 }
@@ -185,9 +185,18 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
     let end_hex = get_hex(enum_end);
 
     //если указана длинна 17 и начало не указано
-    start_enum = if range == 17 && start_enum == 0 { get_hex_start17(enum_start) } else { start_enum};
+    start_enum = if range == 17 && start_enum == 0 {
+        get_hex_start17(enum_start)
+    } else {
+        if enum_start == 0 {
+            0
+        } else {
+            start_enum
+        }
+    };
 
-    end_enum = if end_enum == 0 {  if start_enum == 0{end_enum}else { get_hex(enum_start) } } else { get_hex(enum_start)};
+    end_enum = if end_enum>0{end_enum}else { get_hex(enum_start)};
+
 
     loop {
         //получаем рандомную строку нужной длиннны и устанавливаем пользовательские
@@ -210,17 +219,17 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
         };
 
         //если включен рандомный шаг
-        if rnd_step{
+        if rnd_step {
             step = rng.gen_range(1..get_hex_rand_step(enum_start));
         }
 
 
         for end_h in 0..=end_hex {
-
             for start_h in (start_enum..=end_enum).step_by(step as usize) {
                 //получаем готовый хекс пока без нулей
                 let st = if end_enum == 0 { "".to_string() } else { format!("{:0enum_start$X}", start_h) };
                 let en = if end_hex == 0 { "".to_string() } else { format!("{:0enum_end$X}", end_h) };
+
                 let enum_hex_and_rand = format!("{st}{randhex}{en}");
 
                 //если включен режим по очереди перебирая каждую рандомную
@@ -328,6 +337,7 @@ fn get_hex(range: usize) -> u128 {
     };
     hex
 }
+
 fn get_hex_rand_step(range: usize) -> u128 {
     let hex = match range {
         1 => 0x1,
@@ -472,6 +482,7 @@ fn start_zero(p: usize) -> String {
     };
     r
 }
+
 fn print_and_save(hex: &str, key: &String, addres: &String) {
     println!("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     println!("!!!!!!!!!!!!!!!!!!!!!!FOUND!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
