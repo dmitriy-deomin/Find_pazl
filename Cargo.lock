@@ -4,15 +4,16 @@ version = 3
 
 [[package]]
 name = "Find_pazl"
-version = "2.0.9"
+version = "3.0.1"
 dependencies = [
  "base58",
  "hex 0.4.3",
+ "libc",
+ "libloading",
  "num_cpus",
  "rand 0.8.5",
  "ripemd",
  "rustils",
- "secp256k1 0.28.0",
  "sha2",
  "sv",
  "tokio",
@@ -280,6 +281,16 @@ name = "libc"
 version = "0.2.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a08173bc88b7955d1b3145aa561539096c421ac8debde8cbc3612ec635fee29b"
+
+[[package]]
+name = "libloading"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c571b676ddfc9a8c12f1f3d3085a7b163966a8fd8098a90640953ce5f6170161"
+dependencies = [
+ "cfg-if",
+ "windows-sys",
+]
 
 [[package]]
 name = "linked-hash-map"
@@ -761,22 +772,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secp256k1"
-version = "0.28.0"
-source = "git+https://github.com/rust-bitcoin/rust-secp256k1#023d50b4dbb7edb1cd31b1a04050b17ba0733fcf"
-dependencies = [
- "secp256k1-sys",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.9.0"
-source = "git+https://github.com/rust-bitcoin/rust-secp256k1#023d50b4dbb7edb1cd31b1a04050b17ba0733fcf"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -875,7 +870,7 @@ dependencies = [
  "ripemd160",
  "rust-base58",
  "rust-crypto",
- "secp256k1 0.12.0",
+ "secp256k1",
  "snowflake",
 ]
 

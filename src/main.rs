@@ -1,28 +1,30 @@
 mod data;
+mod ice_library;
 
 extern crate rand;
 extern crate num_cpus;
-extern crate secp256k1;
 
 use std::{collections::HashSet, fs::{OpenOptions, File}, time::{Instant, Duration}, io::{BufRead, BufReader, Write}, path::Path, io};
 use std::{
     io::{stdout},
 };
-use std::str::FromStr;
 use std::sync::{Arc, mpsc};
 use std::sync::mpsc::Sender;
 use rand::Rng;
-use sv::util::{hash160, sha256d};
+use sv::util::sha256d;
 
 use base58::ToBase58;
 use rustils::parse::boolean::string_to_bool;
-use secp256k1::{PublicKey, Secp256k1, SecretKey, All};
 use tokio::task;
+use crate::ice_library::IceLibrary;
+
 
 //Список для рандом
 const HEX: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"];
 const FILE_CONFIG: &str = "confPazl.txt";
 const BACKSPACE: char = 8u8 as char;
+
+
 
 #[tokio::main]
 async fn main() {
@@ -75,7 +77,7 @@ async fn main() {
     // Инфо блок
     // ---------------------------------------------------------------------
     println!("===============================");
-    println!("FIND PAZL 66-160(17-40) v2.0.9");
+    println!("FIND PAZL 66-160(17-40) v3.0.1");
     println!("===============================");
 
     println!("conf load:\n\
@@ -157,8 +159,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
            enum_end: usize, enum_all: u8, mut start_enum: u128, mut end_enum: u128, mut step: u128, rnd_step: bool) {
     let mut start = Instant::now();
     let mut speed: u32 = 0;
-    let s = Secp256k1::new();
-    let sk_def = SecretKey::from_str("0000000000000000000000000000000000000000000000000000000000001460").unwrap();
+
     let enumall = string_to_bool(enum_all.to_string());
 
     //Заполняем сначала нужным количеством нулей
@@ -197,6 +198,9 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
 
     end_enum = if end_enum>0{end_enum}else { get_hex(enum_start)};
 
+
+    let ice_library = ice_library::IceLibrary::new();
+    ice_library.init_secp256_lib();
 
     loop {
         //получаем рандомную строку нужной длиннны и устанавливаем пользовательские
@@ -241,7 +245,8 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                             st.replace_range(i..i + 1, HEX[j]);
                             rnd_str.push_str(&st);
 
-                            let address = create_and_find(&rnd_str, file_content, &s, sk_def);
+                            let address = create_and_find(rnd_str.as_str(),file_content,&ice_library);
+
                             if bench {
                                 println!("[{st}][{}][{address}]", hex_to_wif_compressed(hex::decode(&rnd_str).unwrap()));
                             } else {
@@ -258,7 +263,8 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                 } else {
                     let hex_string = format!("{zero}{enum_hex_and_rand}");
 
-                    let address = create_and_find(&hex_string, file_content, &s, sk_def);
+                    let address = create_and_find(hex_string.as_str(),file_content,&ice_library);
+
                     if bench {
                         println!("[{enum_hex_and_rand}][{}][{address}]", hex_to_wif_compressed(hex::decode(&hex_string).unwrap()));
                     } else {
@@ -273,6 +279,15 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
             }
         }
     }
+}
+
+fn create_and_find(hex: &str, file_content: &Arc<HashSet<String>>, ice_library: &IceLibrary) -> String {
+    let address = ice_library.privatekey_to_address(hex);
+    if file_content.contains(&address) {
+        let private_key_c = hex_to_wif_compressed(hex::decode(&hex).expect(&*hex));
+        print_and_save(&hex, &private_key_c, &address);
+    }
+    address
 }
 
 fn get_hex_start17(range: usize) -> u128 {
@@ -375,30 +390,6 @@ fn get_hex_rand_step(range: usize) -> u128 {
         _ => { 0x1 }
     };
     hex
-}
-
-fn create_and_find(hex: &String, file_content: &Arc<HashSet<String>>, s: &Secp256k1<All>, sk_def: SecretKey) -> String {
-    let sk = SecretKey::from_str(&hex).unwrap_or(sk_def);
-    let public_key_c = PublicKey::from_secret_key(&s, &sk);
-
-    let address = get_legacy(&public_key_c.serialize());
-
-    if file_content.contains(&address) {
-        let private_key_c = hex_to_wif_compressed(hex::decode(&hex).expect(hex));
-        print_and_save(&hex, &private_key_c, &address);
-    }
-    address
-}
-
-//legasy-----------------------------------------------------------------------
-pub fn get_legacy(public_key: &[u8; 33]) -> String {
-    let hash160 = hash160(&public_key.as_ref());
-    let mut v = [0; 25];
-    v[0] = 0x00;
-    v[1..=20].copy_from_slice(&hash160.0);
-    let checksum = sha256d(&v[0..=20]).0;
-    v[21..=24].copy_from_slice(&checksum[0..=3]);
-    v.to_base58()
 }
 
 //------------------------------------------------------------------------------------
