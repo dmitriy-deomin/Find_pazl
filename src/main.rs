@@ -24,8 +24,6 @@ const HEX: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", 
 const FILE_CONFIG: &str = "confPazl.txt";
 const BACKSPACE: char = 8u8 as char;
 
-
-
 #[tokio::main]
 async fn main() {
     let count_cpu = num_cpus::get();
@@ -75,23 +73,10 @@ async fn main() {
 
 
     // Инфо блок
-    // ---------------------------------------------------------------------
-    println!("===============================");
-    println!("FIND PAZL 66-160(17-40) v3.0.1");
-    println!("===============================");
-
-    println!("conf load:\n\
-    CPU CORE:{num_cores}/{count_cpu}\n\
-    HEX_END:{pazl}\n\
-    CUSTOM_DIGIT\n{:?}\n\
-    ENUMERATION_START:{enum_start}\n\
-    ENUMERATION_END:{enum_end}\n\
-    ENUMERATION STEP 1 ALL:{}\n\
-    START_ENUMERATION:{start_enum}\n\
-    END_ENUMERATION:{end_enum}\n\
-    STEP:{step}\n\
-    RAND STEP:{rnd_step}", custom_digit, string_to_bool(enum_all.clone().to_string()));
-    // --------------------------------------------------------------------
+    //---------------------------------------------------------------------------------------------------
+    display_configuration_info("v3.0.1",num_cores, count_cpu, pazl, &custom_digit, enum_start,
+                               enum_end, enum_all, &start_enum, &end_enum, &step, rnd_step);
+    //-------------------------------------------------------------------------------------------------
 
     let file_content = match lines_from_file("puzzle.txt") {
         Ok(file) => { file }
@@ -199,7 +184,7 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
     end_enum = if end_enum>0{end_enum}else { get_hex(enum_start)};
 
 
-    let ice_library = ice_library::IceLibrary::new();
+    let ice_library = IceLibrary::new();
     ice_library.init_secp256_lib();
 
     loop {
@@ -404,74 +389,11 @@ fn hex_to_wif_compressed(raw_hex: Vec<u8>) -> String {
 }
 
 fn start_zero(p: usize) -> String {
-    let r = match p {
-        1 => "000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        2 => "00000000000000000000000000000000000000000000000000000000000000".to_string(),
-        3 => "0000000000000000000000000000000000000000000000000000000000000".to_string(),
-        4 => "000000000000000000000000000000000000000000000000000000000000".to_string(),
-        5 => "00000000000000000000000000000000000000000000000000000000000".to_string(),
-        6 => "0000000000000000000000000000000000000000000000000000000000".to_string(),
-        7 => "000000000000000000000000000000000000000000000000000000000".to_string(),
-        8 => "00000000000000000000000000000000000000000000000000000000".to_string(),
-        9 => "0000000000000000000000000000000000000000000000000000000".to_string(),
-        10 => "000000000000000000000000000000000000000000000000000000".to_string(),
-        11 => "00000000000000000000000000000000000000000000000000000".to_string(),
-        12 => "0000000000000000000000000000000000000000000000000000".to_string(),
-        13 => "000000000000000000000000000000000000000000000000000".to_string(),
-        14 => "00000000000000000000000000000000000000000000000000".to_string(),
-        15 => "0000000000000000000000000000000000000000000000000".to_string(),
-        16 => "000000000000000000000000000000000000000000000000".to_string(),
-        17 => "00000000000000000000000000000000000000000000000".to_string(),
-        18 => "0000000000000000000000000000000000000000000000".to_string(),
-        19 => "000000000000000000000000000000000000000000000".to_string(),
-        20 => "00000000000000000000000000000000000000000000".to_string(),
-        21 => "0000000000000000000000000000000000000000000".to_string(),
-        22 => "000000000000000000000000000000000000000000".to_string(),
-        23 => "00000000000000000000000000000000000000000".to_string(),
-        24 => "0000000000000000000000000000000000000000".to_string(),
-        25 => "000000000000000000000000000000000000000".to_string(),
-        26 => "00000000000000000000000000000000000000".to_string(),
-        27 => "0000000000000000000000000000000000000".to_string(),
-        28 => "000000000000000000000000000000000000".to_string(),
-        29 => "00000000000000000000000000000000000".to_string(),
-        30 => "0000000000000000000000000000000000".to_string(),
-        31 => "000000000000000000000000000000000".to_string(),
-        32 => "00000000000000000000000000000000".to_string(),
-        33 => "0000000000000000000000000000000".to_string(),
-        34 => "000000000000000000000000000000".to_string(),
-        35 => "00000000000000000000000000000".to_string(),
-        36 => "0000000000000000000000000000".to_string(),
-        37 => "000000000000000000000000000".to_string(),
-        38 => "00000000000000000000000000".to_string(),
-        39 => "0000000000000000000000000".to_string(),
-        40 => "000000000000000000000000".to_string(),
-        41 => "00000000000000000000000".to_string(),
-        42 => "0000000000000000000000".to_string(),
-        43 => "000000000000000000000".to_string(),
-        44 => "00000000000000000000".to_string(),
-        45 => "0000000000000000000".to_string(),
-        46 => "000000000000000000".to_string(),
-        47 => "00000000000000000".to_string(),
-        48 => "0000000000000000".to_string(),
-        49 => "000000000000000".to_string(),
-        50 => "00000000000000".to_string(),
-        51 => "0000000000000".to_string(),
-        52 => "000000000000".to_string(),
-        53 => "00000000000".to_string(),
-        54 => "0000000000".to_string(),
-        55 => "000000000".to_string(),
-        56 => "00000000".to_string(),
-        57 => "0000000".to_string(),
-        58 => "000000".to_string(),
-        59 => "00000".to_string(),
-        60 => "0000".to_string(),
-        61 => "000".to_string(),
-        62 => "00".to_string(),
-        63 => "0".to_string(),
-        64 => "".to_string(),
-        _ => { "".to_string() }
-    };
-    r
+    if p >= 64 {
+        return "".to_string();
+    }
+    // Создаем строку, состоящую из p нулей
+    "0".repeat(64 - p)
 }
 
 fn print_and_save(hex: &str, key: &String, addres: &String) {
@@ -502,11 +424,30 @@ fn add_v_file(name: &str, data: String) {
 }
 
 fn first_word(s: &String) -> &str {
-    let bytes = s.as_bytes();
-    for (i, &item) in bytes.iter().enumerate() {
-        if item == b' ' {
-            return &s[0..i];
-        }
-    }
-    &s[..]
+    s.trim().split_whitespace().next().unwrap_or("")
+}
+fn display_configuration_info(ver:&str,num_cores: i8, count_cpu: usize,
+                              pazl: usize, custom_digit: &str,
+                              enum_start: usize, enum_end: usize,
+                              enum_all: u8, start_enum: &str,
+                              end_enum: &str, step: &str,
+                              rnd_step: bool) {
+    println!("===============================");
+    println!("FIND PAZL 66-160(17-40) {ver}");
+    println!("===============================");
+
+    println!("conf load:\n\
+    CPU CORE:{}/{}\n\
+    HEX_END:{}\n\
+    CUSTOM_DIGIT\n{:?}\n\
+    ENUMERATION_START:{}\n\
+    ENUMERATION_END:{}\n\
+    ENUMERATION STEP 1 ALL:{}\n\
+    START_ENUMERATION:{}\n\
+    END_ENUMERATION:{}\n\
+    STEP:{}\n\
+    RAND STEP:{}", num_cores, count_cpu, pazl,
+             custom_digit, enum_start, enum_end,
+             enum_all, start_enum, end_enum,
+             step, rnd_step);
 }
