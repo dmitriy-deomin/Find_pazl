@@ -1,5 +1,6 @@
 mod data;
 mod ice_library;
+mod color;
 
 extern crate rand;
 extern crate num_cpus;
@@ -13,9 +14,11 @@ use std::sync::mpsc::Sender;
 use rand::Rng;
 use sv::util::sha256d;
 
-use base58::ToBase58;
+use base58::{FromBase58, ToBase58};
+use console::StyledObject;
 use rustils::parse::boolean::string_to_bool;
 use tokio::task;
+use crate::color::{blue, cyan, green, magenta, red};
 use crate::ice_library::IceLibrary;
 
 
@@ -62,19 +65,10 @@ async fn main() {
 
     let rnd_step = string_to_bool(rnd_step.to_string());
 
-    //если поставят полный перебор отключим последовательный и поставим на одно ядро
-    if enum_start + enum_end >= pazl {
-        enum_all = 0;
-        //если выключен рандомный шаг
-        if rnd_step == false {
-            num_cores = 1;
-        }
-    }
-
-
     // Инфо блок
     //---------------------------------------------------------------------------------------------------
-    display_configuration_info("v3.0.1",num_cores, count_cpu, pazl, &custom_digit, enum_start,
+    let version: &str = env!("CARGO_PKG_VERSION");
+    display_configuration_info(magenta(version),num_cores, count_cpu, pazl, &custom_digit, enum_start,
                                enum_end, enum_all, &start_enum, &end_enum, &step, rnd_step);
     //-------------------------------------------------------------------------------------------------
 
@@ -90,20 +84,31 @@ async fn main() {
     //хешируем
     let mut database = HashSet::new();
     for address in file_content.iter() {
-        database.insert(address.to_string());
+        let binding = address.from_base58().unwrap();
+        let a = &binding.as_slice()[1..=20];
+        database.insert(a.to_vec());
     }
 
-    println!("\nADDRESS LOAD:{:?}", database.len());
+    println!("{}{:?}",blue("ADDRESS LOAD:"), green(database.len()));
 
     // Если 0 значит тест изменим на 1
     // -----------------------------------------------------------
     let mut bench = false;
     if num_cores == 0 {
-        println!("--------------------------------");
-        println!("        test mode 1 core");
-        println!("--------------------------------");
+        println!("{}", red("----------------"));
+        println!("{}", red(" LOG MODE 1 CORE"));
+        println!("{}", red("----------------"));
         bench = true;
         num_cores = 1;
+    }else {
+        //если поставят полный перебор отключим последовательный и поставим на одно ядро
+        if enum_start + enum_end >= pazl {
+            enum_all = 0;
+            //если выключен рандомный шаг
+            if rnd_step == false {
+                num_cores = 1;
+            }
+        }
     }
     // ------------------------------------------------------------
 
@@ -135,12 +140,12 @@ async fn main() {
         let list: Vec<&str> = received.split(",").collect();
         let mut speed = list[0].to_string().parse::<u64>().unwrap();
         speed = speed * num_cores as u64;
-        print!("{}\rSPEED:{}/s|STEP:{}|{}", BACKSPACE, speed, list[2].to_string(), list[1].to_string());
+        print!("{}\r{}{}{}{}{}{}", BACKSPACE,green("SPEED:"), green(speed),green("/s|STEP:"), green(list[2]),green("|"), green(list[1]));
         stdout.flush().unwrap();
     }
 }
 
-fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custom: &Arc<String>, enum_start: usize, tx: Sender<String>,
+fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, custom: &Arc<String>, enum_start: usize, tx: Sender<String>,
            enum_end: usize, enum_all: u8, mut start_enum: u128, mut end_enum: u128, mut step: u128, rnd_step: bool) {
     let mut start = Instant::now();
     let mut speed: u32 = 0;
@@ -182,7 +187,6 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
     };
 
     end_enum = if end_enum>0{end_enum}else { get_hex(enum_start)};
-
 
     let ice_library = IceLibrary::new();
     ice_library.init_secp256_lib();
@@ -230,12 +234,12 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                             st.replace_range(i..i + 1, HEX[j]);
                             rnd_str.push_str(&st);
 
-                            let address = create_and_find(rnd_str.as_str(),file_content,&ice_library);
+                            create_and_find(rnd_str.as_str(),file_content,&ice_library);
 
                             if bench {
-                                println!("[{st}][{}][{address}]", hex_to_wif_compressed(hex::decode(&rnd_str).unwrap()));
+                                println!("[{}][{}]",cyan(st), cyan(hex_to_wif_compressed(hex::decode(&rnd_str).unwrap())));
                             } else {
-                                speed = speed + 1;
+
                                 if start.elapsed() >= Duration::from_secs(1) {
                                     tx.send(format!("{speed},{st},{step}").to_string()).unwrap();
                                     start = Instant::now();
@@ -247,11 +251,10 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
                     //иначе напрямую
                 } else {
                     let hex_string = format!("{zero}{enum_hex_and_rand}");
-
-                    let address = create_and_find(hex_string.as_str(),file_content,&ice_library);
+                    create_and_find(hex_string.as_str(),file_content,&ice_library);
 
                     if bench {
-                        println!("[{enum_hex_and_rand}][{}][{address}]", hex_to_wif_compressed(hex::decode(&hex_string).unwrap()));
+                        println!("[{}][{}]",cyan(enum_hex_and_rand), cyan(hex_to_wif_compressed(hex::decode(&hex_string).unwrap())));
                     } else {
                         speed = speed + 1;
                         if start.elapsed() >= Duration::from_secs(1) {
@@ -266,14 +269,15 @@ fn process(file_content: &Arc<HashSet<String>>, bench: bool, range: usize, custo
     }
 }
 
-fn create_and_find(hex: &str, file_content: &Arc<HashSet<String>>, ice_library: &IceLibrary) -> String {
-    let address = ice_library.privatekey_to_address(hex);
-    if file_content.contains(&address) {
+fn create_and_find(hex: &str, file_content: &Arc<HashSet<Vec<u8>>>, ice_library: &IceLibrary){
+    let f = ice_library.privatekey_to_h160(hex);
+    if file_content.contains(&f.to_vec()) {
+        let address =ice_library.privatekey_to_address(hex);
         let private_key_c = hex_to_wif_compressed(hex::decode(&hex).expect(&*hex));
-        print_and_save(&hex, &private_key_c, &address);
+        print_and_save(&hex, &private_key_c,address);
     }
-    address
 }
+
 
 fn get_hex_start17(range: usize) -> u128 {
     let hex = match range {
@@ -396,16 +400,15 @@ fn start_zero(p: usize) -> String {
     "0".repeat(64 - p)
 }
 
-fn print_and_save(hex: &str, key: &String, addres: &String) {
-    println!("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    println!("!!!!!!!!!!!!!!!!!!!!!!FOUND!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    println!("HEX:{}", hex);
-    println!("PRIVATE KEY:{}", key);
-    println!("ADDRESS:{}", addres);
+fn print_and_save(hex: &str, key: &String, addres: String) {
+    println!("{}", cyan("\n!!!!!!!!!!!!!!!!!!!!!!FOUND!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"));
+    println!("{}{}", cyan("HEX:"), cyan(hex));
+    println!("{}{}", cyan("PRIVATE KEY:"), cyan(key));
+    println!("{}{}", cyan("ADDRESS:"), cyan(addres.clone()));
     let s = format!("HEX:{}\nPRIVATE KEY: {}\nADDRESS {}\n", hex, key, addres);
     add_v_file("FOUND_PAZL.txt", s);
-    println!("FOUND_PAZL.txt");
-    println!("\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    println!("{}", cyan("SAVE TO FOUND_PAZL.txt"));
+    println!("{}", cyan("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"));
 }
 
 fn lines_from_file(filename: impl AsRef<Path>) -> io::Result<Vec<String>> {
@@ -426,28 +429,30 @@ fn add_v_file(name: &str, data: String) {
 fn first_word(s: &String) -> &str {
     s.trim().split_whitespace().next().unwrap_or("")
 }
-fn display_configuration_info(ver:&str,num_cores: i8, count_cpu: usize,
+fn display_configuration_info(ver: StyledObject<String>, num_cores: i8, count_cpu: usize,
                               pazl: usize, custom_digit: &str,
                               enum_start: usize, enum_end: usize,
                               enum_all: u8, start_enum: &str,
                               end_enum: &str, step: &str,
                               rnd_step: bool) {
-    println!("===============================");
-    println!("FIND PAZL 66-160(17-40) {ver}");
-    println!("===============================");
+    println!( "{}",blue("==============================="));
+    println!("{} {ver}",blue("FIND PAZL 66-160(17-40)"));
+    println!("{}", blue("==============================="));
 
-    println!("conf load:\n\
-    CPU CORE:{}/{}\n\
-    HEX_END:{}\n\
-    CUSTOM_DIGIT\n{:?}\n\
-    ENUMERATION_START:{}\n\
-    ENUMERATION_END:{}\n\
-    ENUMERATION STEP 1 ALL:{}\n\
-    START_ENUMERATION:{}\n\
-    END_ENUMERATION:{}\n\
-    STEP:{}\n\
-    RAND STEP:{}", num_cores, count_cpu, pazl,
-             custom_digit, enum_start, enum_end,
-             enum_all, start_enum, end_enum,
-             step, rnd_step);
+    println!("{conf_load}\n\
+    {cpu_core}{}{palka}{}\n\
+    {end_hex}{}\n\
+    {customdigit}\n{:?}\n\
+    {enumstart}{}\n\
+    {enumend}{}\n\
+    {enumst1}{}\n\
+    {stenum}{}\n\
+    {enend}{}\n\
+    {st}{}\n\
+    {rndst}{}", green(num_cores), blue(count_cpu), green(pazl), green(custom_digit), green(enum_start), green(enum_end),
+             green(enum_all), green(start_enum), green(end_enum), green(step), green(rnd_step),
+             conf_load=blue("conf load:"),cpu_core =blue("CPU CORE:"),end_hex=blue("HEX_END:"),
+    customdigit=blue("CUSTOM_DIGIT"),enumstart=blue("ENUMERATION_START:"),enumend = blue("ENUMERATION_END:"),
+    enumst1=blue("ENUMERATION STEP 1 ALL:"),stenum=blue("START_ENUMERATION:"),enend=blue("END_ENUMERATION:"),
+    st =blue("STEP:"),rndst=blue("RAND STEP:"),palka = blue("/"));
 }
