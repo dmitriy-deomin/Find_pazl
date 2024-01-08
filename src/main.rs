@@ -140,7 +140,7 @@ async fn main() {
         let list: Vec<&str> = received.split(",").collect();
         let mut speed = list[0].to_string().parse::<u64>().unwrap();
         speed = speed * num_cores as u64;
-        print!("{}\r{}{}{}{}{}{}", BACKSPACE,green("SPEED:"), green(speed),green("/s|STEP:"), green(list[2]),green("|"), green(list[1]));
+        print!("{}\r{}", BACKSPACE,green(format!("SPEED:{speed}/s|STEP:{}|{}",list[2],list[1])));
         stdout.flush().unwrap();
     }
 }
@@ -239,7 +239,6 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
                             if bench {
                                 println!("[{}][{}]",cyan(st), cyan(hex_to_wif_compressed(hex::decode(&rnd_str).unwrap())));
                             } else {
-
                                 if start.elapsed() >= Duration::from_secs(1) {
                                     tx.send(format!("{speed},{st},{step}").to_string()).unwrap();
                                     start = Instant::now();
