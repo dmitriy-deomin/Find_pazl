@@ -12,23 +12,24 @@ use std::{
 use std::sync::{Arc, mpsc};
 use std::sync::mpsc::Sender;
 use rand::Rng;
-use sv::util::sha256d;
 
 use base58::{FromBase58, ToBase58};
 use console::StyledObject;
 use rustils::parse::boolean::string_to_bool;
+use sha2::{Digest, Sha256};
 use tokio::task;
 use crate::color::{blue, cyan, green, magenta, red};
 use crate::ice_library::IceLibrary;
 
 
 //Список для рандом
-const HEX: [&str; 16] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"];
+const HEX: [&str; 16] = ["0", "1","2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"];
 const FILE_CONFIG: &str = "confPazl.txt";
 const BACKSPACE: char = 8u8 as char;
 
 #[tokio::main]
 async fn main() {
+
     let count_cpu = num_cpus::get();
     //Чтение настроек, и если их нет создадим
     //-----------------------------------------------------------------
@@ -50,6 +51,7 @@ async fn main() {
     let end_enum = first_word(&conf[8].to_string()).to_string();
     let step = first_word(&conf[9].to_string()).to_string();
     let rnd_step = first_word(&conf[10].to_string()).to_string();
+    let custom_hex = first_word(&conf[11].to_string()).to_string().parse::<String>().unwrap();
     //---------------------------------------------------------------------
 
     //если указана длинна пазла больше звёздочек , дорисуем звёздочек
@@ -69,7 +71,7 @@ async fn main() {
     //---------------------------------------------------------------------------------------------------
     let version: &str = env!("CARGO_PKG_VERSION");
     display_configuration_info(magenta(version),num_cores, count_cpu, pazl, &custom_digit, enum_start,
-                               enum_end, enum_all, &start_enum, &end_enum, &step, rnd_step);
+                               enum_end, enum_all, &start_enum, &end_enum, &step, rnd_step,&custom_hex);
     //-------------------------------------------------------------------------------------------------
 
     let file_content = match lines_from_file("puzzle.txt") {
@@ -123,14 +125,18 @@ async fn main() {
 
     let database = Arc::new(database);
     let data_custom = Arc::new(custom_digit);
+    let hex_custom = Arc::new(custom_hex);
+
+
 
     for _i in 0..num_cores {
         let clone_db = database.clone();
         let clone_dc = data_custom.clone();
+        let clone_hex = hex_custom.clone();
         let tx = tx.clone();
         task::spawn_blocking(move || {
             process(&clone_db, bench, pazl,
-                    &clone_dc, enum_start, tx, enum_end, enum_all, start_enum, end_enum, step, rnd_step);
+                    &clone_dc, enum_start, tx, enum_end, enum_all, start_enum, end_enum, step, rnd_step,&clone_hex);
         });
     }
 
@@ -146,7 +152,8 @@ async fn main() {
 }
 
 fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, custom: &Arc<String>, enum_start: usize, tx: Sender<String>,
-           enum_end: usize, enum_all: u8, mut start_enum: u128, mut end_enum: u128, mut step: u128, rnd_step: bool) {
+           enum_end: usize, enum_all: u8, mut start_enum: u128, mut end_enum: u128, mut step: u128, rnd_step: bool,
+           HEX_str: &Arc<String>) {
     let mut start = Instant::now();
     let mut speed: u32 = 0;
 
@@ -165,6 +172,8 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
             data_custom_run = true;
         }
     }
+
+    let HEX_custom: Vec<&str> = HEX_str.split(",").collect();
 
     //enum_start - сколько чисел слева переберать
     //enum_end - сколько чисел справа перебирать
@@ -190,6 +199,15 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
 
     let ice_library = IceLibrary::new();
     ice_library.init_secp256_lib();
+    //
+    // let hex = "000000000000000000000000000000000000000000000000000000017e20001e";
+    // let t  = ice_library.scalar_multiplication(hex);
+    // // let f = ice_library.pubkey_to_h160(t);
+    // let mass = ice_library.point_sequential_increment(t);
+    // let adr = ice_library.publickey_to_address(0,false,&mass[0..65]);
+    //
+    // println!("{}",hex::encode(&mass[0..65]));
+    // println!("{}",adr);
 
     loop {
         //получаем рандомную строку нужной длиннны и устанавливаем пользовательские
@@ -199,14 +217,14 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
                 if data_custom[i] != "*" {
                     randr_str_and_user.push_str(data_custom[i]);
                 } else {
-                    randr_str_and_user.push_str(HEX[rng.gen_range(0..=15)])
+                    randr_str_and_user.push_str(HEX_custom[rng.gen_range(0..HEX_custom.len())])
                 }
             }
             randr_str_and_user
         } else {
             let mut randr_str_and_user = "".to_string();
             for _i in 0..range - (enum_start + enum_end) {
-                randr_str_and_user.push_str(HEX[rng.gen_range(0..=15)])
+                randr_str_and_user.push_str(HEX_custom[rng.gen_range(0..HEX_custom.len())])
             }
             randr_str_and_user
         };
@@ -215,7 +233,6 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
         if rnd_step {
             step = rng.gen_range(1..get_hex_rand_step(enum_start));
         }
-
 
         for end_h in 0..=end_hex {
             for start_h in (start_enum..=end_enum).step_by(step as usize) {
@@ -239,6 +256,7 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
                             if bench {
                                 println!("[{}][{}]",cyan(st), cyan(hex_to_wif_compressed(hex::decode(&rnd_str).unwrap())));
                             } else {
+                                speed = speed + 1;
                                 if start.elapsed() >= Duration::from_secs(1) {
                                     tx.send(format!("{speed},{st},{step}").to_string()).unwrap();
                                     start = Instant::now();
@@ -255,7 +273,7 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
                     if bench {
                         println!("[{}][{}]",cyan(enum_hex_and_rand), cyan(hex_to_wif_compressed(hex::decode(&hex_string).unwrap())));
                     } else {
-                        speed = speed + 1;
+                         speed = speed + 1;
                         if start.elapsed() >= Duration::from_secs(1) {
                             tx.send(format!("{speed},{enum_hex_and_rand},{step}").to_string()).unwrap();
                             start = Instant::now();
@@ -266,6 +284,8 @@ fn process(file_content: &Arc<HashSet<Vec<u8>>>, bench: bool, range: usize, cust
             }
         }
     }
+
+
 }
 
 fn create_and_find(hex: &str, file_content: &Arc<HashSet<Vec<u8>>>, ice_library: &IceLibrary){
@@ -386,9 +406,15 @@ fn hex_to_wif_compressed(raw_hex: Vec<u8>) -> String {
     v[0] = 0x80;
     v[1..=32].copy_from_slice(&raw_hex.as_ref());
     v[33] = 0x01;
-    let checksum = sha256d(&v[0..=33]).0;
+    let checksum = sha256d(&v[0..=33]);
     v[34..=37].copy_from_slice(&checksum[0..=3]);
     v.to_base58()
+}
+
+fn sha256d(data: &[u8]) -> Vec<u8> {
+    let first_hash = Sha256::digest(data);
+    let second_hash = Sha256::digest(&first_hash);
+    second_hash.to_vec()
 }
 
 fn start_zero(p: usize) -> String {
@@ -433,7 +459,8 @@ fn display_configuration_info(ver: StyledObject<String>, num_cores: i8, count_cp
                               enum_start: usize, enum_end: usize,
                               enum_all: u8, start_enum: &str,
                               end_enum: &str, step: &str,
-                              rnd_step: bool) {
+                              rnd_step: bool,
+                              custom_hex: &str) {
     println!( "{}",blue("==============================="));
     println!("{} {ver}",blue("FIND PAZL 66-160(17-40)"));
     println!("{}", blue("==============================="));
@@ -448,10 +475,11 @@ fn display_configuration_info(ver: StyledObject<String>, num_cores: i8, count_cp
     {stenum}{}\n\
     {enend}{}\n\
     {st}{}\n\
-    {rndst}{}", green(num_cores), blue(count_cpu), green(pazl), green(custom_digit), green(enum_start), green(enum_end),
+    {rndst}{}\n\
+    {hhhh}", green(num_cores), blue(count_cpu), green(pazl), green(custom_digit), green(enum_start), green(enum_end),
              green(enum_all), green(start_enum), green(end_enum), green(step), green(rnd_step),
              conf_load=blue("conf load:"),cpu_core =blue("CPU CORE:"),end_hex=blue("HEX_END:"),
     customdigit=blue("CUSTOM_DIGIT"),enumstart=blue("ENUMERATION_START:"),enumend = blue("ENUMERATION_END:"),
     enumst1=blue("ENUMERATION STEP 1 ALL:"),stenum=blue("START_ENUMERATION:"),enend=blue("END_ENUMERATION:"),
-    st =blue("STEP:"),rndst=blue("RAND STEP:"),palka = blue("/"));
+    st =blue("STEP:"),rndst=blue("RAND STEP:"),palka = blue("/"),hhhh=format!("{}{}",blue("CUSTOM HEX:"),green(custom_hex)));
 }
