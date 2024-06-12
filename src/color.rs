@@ -10,9 +10,6 @@ pub fn blue(text:impl Display) -> StyledObject<String> {
 pub fn magenta(text:impl Display) -> StyledObject<String> {
     style(text.to_string()).magenta()
 }
-pub fn red(text:impl Display) -> StyledObject<String> {
-    style(text.to_string()).red()
-}
 pub fn cyan(text:impl Display) -> StyledObject<String> {
     style(text.to_string()).cyan()
 }
