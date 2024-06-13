@@ -10,11 +10,10 @@ use base58::{FromBase58, ToBase58};
 use sha2::{Digest, Sha256};
 use crate::color::{blue, cyan, green, magenta};
 use sv::util::hash160;
+use rustils::parse::boolean::string_to_bool;
 
 #[cfg(not(windows))]
 use rust_secp256k1::{PublicKey, Secp256k1, SecretKey};
-use rust_secp256k1::SecretKey;
-use rustils::parse::boolean::string_to_bool;
 
 #[cfg(windows)]
 mod ice_library;
